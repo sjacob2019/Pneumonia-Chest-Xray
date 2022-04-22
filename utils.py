@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import matplotlib.pyplot as plt
 
 def get_data():
     paths = {
@@ -10,7 +11,7 @@ def get_data():
     categories = {0: 'normal', 1: 'pneumonia'}
     dataset = pd.DataFrame()
     for cat_number, cat_name in categories.items():
-        for split, path in paths.items():
+        for path in paths.values():
             combined_path = os.path.join(path, cat_name.upper())
             files = os.listdir(combined_path)
             for i, file in enumerate(files):
