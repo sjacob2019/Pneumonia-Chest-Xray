@@ -55,7 +55,7 @@ def get_dataloader(data_df, batch_size, transform=ToTensor(), shuffle=True):
 def train_loop(dataloader, model, loss_fn, optimizer, device, history):
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
-    y_true, y_pred = torch.Tensor(), torch.Tensor()
+    y_true, y_pred = torch.Tensor().to(device), torch.Tensor().to(device)
     avg_loss = 0
 
     for batch, (X, y) in enumerate(dataloader):
@@ -68,8 +68,8 @@ def train_loop(dataloader, model, loss_fn, optimizer, device, history):
         avg_loss += loss.item()
 
         # Add to total predictions and ground truths
-        y_pred = torch.cat((y_pred, torch.round(output))) 
-        y_true = torch.cat((y_true, y))
+        y_pred = torch.cat((y_pred, torch.round(output).to(device))).to(device)
+        y_true = torch.cat((y_true, y)).to(device)
 
         # Backpropagation
         optimizer.zero_grad()
@@ -82,12 +82,12 @@ def train_loop(dataloader, model, loss_fn, optimizer, device, history):
     
     avg_loss /= num_batches
     history['losses'].append(avg_loss)
-    calc_metrics(y_pred.int(), y_true.int(), history)
+    calc_metrics(y_pred.int().cpu().detach().numpy(), y_true.int().cpu().detach().numpy(), history)
     
 
 def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
     num_batches = len(dataloader)
-    y_true, y_pred = torch.Tensor(), torch.Tensor()
+    y_true, y_pred = torch.Tensor().to(device), torch.Tensor().to(device)
     test_loss = 0
 
     with torch.no_grad():
@@ -107,14 +107,14 @@ def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
     test_loss /= num_batches
     if mode == 'val':
         history['val_losses'].append(test_loss)
-    accuracy, precision, recall, specificity = calc_metrics(y_pred.int(), y_true.int(), history, mode)
+    accuracy, precision, recall, specificity = calc_metrics(y_pred.int().cpu().detach().numpy(), y_true.int().cpu().detach().numpy(), history, mode)
 
     print("Test Metrics:")
     print(f"Loss: {test_loss:>8f}, Accuracy: {(100*accuracy):>0.1f}%, Precision: {(100*precision):>0.1f}%, Recall: {(100*recall):>0.1f}%, Specificity: {(100*specificity):>0.1f}%\n")
-    return y_pred.numpy(), y_true.numpy()
+    return y_pred.cpu().detach().numpy(), y_true.cpu().detach().numpy()
 
 def calc_metrics(y_pred, y_true, history=None, mode='train'):
-    y_true, y_pred = y_true.detach().numpy(), y_pred.detach().numpy()
+    #y_true, y_pred = y_true.cpu().detach().numpy(), y_pred.cpu().detach().numpy()
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     accuracy = balanced_accuracy_score(y_pred, y_true)
     precision = precision_score(y_pred, y_true)
