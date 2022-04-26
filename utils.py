@@ -1,10 +1,10 @@
 import pandas as pd
 import os
-import cv2
+from cv2 import imread, resize, IMREAD_GRAYSCALE
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import ToTensor
-from utils import *
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix, recall_score, precision_score
 
 class ImgDataset(Dataset):
     def __init__(self, df, img_size=(28, 28), transform=None, target_transform=None):
@@ -18,8 +18,8 @@ class ImgDataset(Dataset):
     
     def __getitem__(self, idx):
         img_path, label = self.df.iloc[idx]
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
-        img = cv2.resize(img, self.img_size)
+        img = imread(img_path, IMREAD_GRAYSCALE)
+        img = resize(img, self.img_size)
         if self.transform:
             img = self.transform(img)
         if self.target_transform:
@@ -52,16 +52,24 @@ def get_dataloader(data_df, batch_size, transform=ToTensor(), shuffle=True):
     dataloader = DataLoader(dataset, batch_size, shuffle=shuffle)
     return dataloader
 
-
-def train_loop(dataloader, model, loss_fn, optimizer, device):
+def train_loop(dataloader, model, loss_fn, optimizer, device, history):
     size = len(dataloader.dataset)
-    correct = 0
+    num_batches = len(dataloader)
+    y_true, y_pred = torch.Tensor(), torch.Tensor()
+    avg_loss = 0
+
     for batch, (X, y) in enumerate(dataloader):
         # Compute prediction and loss
         X, y = X.to(device), y.float().to(device)
-        pred = model(X).flatten()
-        correct += (torch.round(pred) == y).type(torch.float).sum().item()
-        loss = loss_fn(pred, y)
+        output = model(X).flatten()
+
+        # Compute loss
+        loss = loss_fn(output, y)
+        avg_loss += loss.item()
+
+        # Add to total predictions and ground truths
+        y_pred = torch.cat((y_pred, torch.round(output))) 
+        y_true = torch.cat((y_true, y))
 
         # Backpropagation
         optimizer.zero_grad()
@@ -71,23 +79,58 @@ def train_loop(dataloader, model, loss_fn, optimizer, device):
         if batch % 10 == 0:
             loss, current = loss.item(), batch * len(X)
             print(f"loss: {loss:>7f}  [{current:>5d}/{size:>5d}]")
-    correct /= size
+    
+    avg_loss /= num_batches
+    history['losses'].append(avg_loss)
+    calc_metrics(y_pred.int(), y_true.int(), history)
     
 
-def evaluate(dataloader, model, loss_fn, device):
-    size = len(dataloader.dataset)
+def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
     num_batches = len(dataloader)
-    test_loss, correct = 0, 0
+    y_true, y_pred = torch.Tensor(), torch.Tensor()
+    test_loss = 0
 
     with torch.no_grad():
         for X, y in dataloader:
+            # Get model outputs
             X, y = X.to(device), y.float().to(device)
-            pred = model(X).flatten()
-            test_loss += loss_fn(pred, y).item()
-            correct += (torch.round(pred) == y).type(torch.float).sum().item()
+            output = model(X).flatten()
+
+            # Compute Loss
+            loss = loss_fn(output, y)
+            test_loss += loss
+
+            # Build up y_true and y_pred
+            y_pred = torch.cat((y_pred, torch.round(output))) 
+            y_true = torch.cat((y_true, y))
+
     test_loss /= num_batches
-    correct /= size
-    print(f"Test Error: \n Accuracy: {(100*correct):>0.1f}%, Avg loss: {test_loss:>8f} \n")
+    if mode == 'val':
+        history['val_losses'].append(test_loss)
+    accuracy, precision, recall, specificity = calc_metrics(y_pred.int(), y_true.int(), history, mode)
+
+    print("Test Metrics:")
+    print(f"Loss: {test_loss:>8f}, Accuracy: {(100*accuracy):>0.1f}%, Precision: {(100*precision):>0.1f}%, Recall: {(100*recall):>0.1f}%, Specificity: {(100*specificity):>0.1f}%\n")
+    return y_pred.numpy(), y_true.numpy()
+
+def calc_metrics(y_pred, y_true, history=None, mode='train'):
+    y_true, y_pred = y_true.detach().numpy(), y_pred.detach().numpy()
+    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    accuracy = balanced_accuracy_score(y_pred, y_true)
+    precision = precision_score(y_pred, y_true)
+    recall = recall_score(y_pred, y_true).item()
+    specificity = tn / (tn + fp)
+    if mode == 'train':
+        history['accuracies'].append(accuracy)
+        history['precisions'].append(precision)
+        history['recalls'].append(recall)
+        history['specificities'].append(specificity)
+    elif mode == 'val':
+        history['val_accuracies'].append(accuracy)
+        history['val_precisions'].append(precision)
+        history['val_recalls'].append(recall)
+        history['val_specificities'].append(specificity)
+    return accuracy, precision, recall, specificity
 
 def save_model(model, path):
     return torch.save(model, path)
