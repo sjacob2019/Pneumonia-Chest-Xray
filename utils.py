@@ -106,7 +106,7 @@ def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
 
     test_loss /= num_batches
     if mode == 'val':
-        history['val_losses'].append(test_loss)
+        history['val_losses'].append(test_loss.item())
     accuracy, precision, recall, specificity = calc_metrics(y_pred.int().cpu().detach().numpy(), y_true.int().cpu().detach().numpy(), history, mode)
 
     print("Test Metrics:")
