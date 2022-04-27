@@ -135,9 +135,7 @@ def calc_metrics(y_pred, y_true, history=None, mode='train'):
         history['val_specificities'].append(specificity)
     return accuracy, precision, recall, specificity
 
-def save_model(model, history, path: str):
-    with open('history.json', 'w') as f:
-        json.dump(history, f)
+def save_model(model, path: str):
     return torch.save(model, path)
 
 def plot_confusion_matrix(y_pred, y_true):
