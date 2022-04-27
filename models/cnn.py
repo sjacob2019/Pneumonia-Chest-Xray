@@ -20,7 +20,7 @@ class CNN(nn.Module):
             nn.Dropout(p=0.25),
 
             nn.Flatten(),
-            nn.Linear(in_features=1 * 1 * 64, out_features=512),
+            nn.Linear(in_features=10 * 10 * 64, out_features=512),
             nn.Linear(in_features=512, out_features=1),
             nn.Sigmoid()
         )

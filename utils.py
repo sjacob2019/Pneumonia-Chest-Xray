@@ -1,13 +1,15 @@
 import pandas as pd
+import matplotlib.pyplot as plt
 import os
+import json
 from cv2 import imread, resize, IMREAD_GRAYSCALE
 import torch
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import ToTensor
-from sklearn.metrics import balanced_accuracy_score, confusion_matrix, recall_score, precision_score
+from sklearn.metrics import balanced_accuracy_score, confusion_matrix, recall_score, precision_score, ConfusionMatrixDisplay
 
 class ImgDataset(Dataset):
-    def __init__(self, df, img_size=(28, 28), transform=None, target_transform=None):
+    def __init__(self, df, img_size=(96, 96), transform=None, target_transform=None):
         self.df = df
         self.transform = transform
         self.target_transform = target_transform
@@ -47,12 +49,13 @@ def get_data():
     dataset = dataset.sample(frac=1).reset_index(drop=True) # Shuffle Dataset
     return dataset
 
-def get_dataloader(data_df, batch_size, transform=ToTensor(), shuffle=True):
-    dataset = ImgDataset(data_df, transform=transform)
+def get_dataloader(data_df, batch_size, img_size=(96, 96), transform=ToTensor(), shuffle=True):
+    dataset = ImgDataset(data_df, img_size=img_size, transform=transform)
     dataloader = DataLoader(dataset, batch_size, shuffle=shuffle)
     return dataloader
 
 def train_loop(dataloader, model, loss_fn, optimizer, device, history):
+    model.train()
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
     y_true, y_pred = torch.Tensor().to(device), torch.Tensor().to(device)
@@ -86,6 +89,7 @@ def train_loop(dataloader, model, loss_fn, optimizer, device, history):
     
 
 def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
+    model.eval()
     num_batches = len(dataloader)
     y_true, y_pred = torch.Tensor().to(device), torch.Tensor().to(device)
     test_loss = 0
@@ -114,8 +118,7 @@ def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
     return y_pred.cpu().detach().numpy(), y_true.cpu().detach().numpy()
 
 def calc_metrics(y_pred, y_true, history=None, mode='train'):
-    #y_true, y_pred = y_true.cpu().detach().numpy(), y_pred.cpu().detach().numpy()
-    tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
+    tn, fp, _, _ = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     accuracy = balanced_accuracy_score(y_pred, y_true)
     precision = precision_score(y_pred, y_true)
     recall = recall_score(y_pred, y_true).item()
@@ -132,5 +135,14 @@ def calc_metrics(y_pred, y_true, history=None, mode='train'):
         history['val_specificities'].append(specificity)
     return accuracy, precision, recall, specificity
 
-def save_model(model, path):
+def save_model(model, history, path: str):
+    with open('history.json', 'w') as f:
+        json.dump(history, f)
     return torch.save(model, path)
+
+def plot_confusion_matrix(y_pred, y_true):
+    cm = confusion_matrix(y_pred=y_pred, y_true=y_true)
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Normal', 'Pneumonia'])
+    disp.plot()
+    plt.title("Confusion Matrix")
+    plt.show()
