@@ -22,7 +22,6 @@ class CNN(nn.Module):
             nn.Flatten(),
             nn.Linear(in_features=10 * 10 * 64, out_features=512),
             nn.Linear(in_features=512, out_features=1),
-            nn.Sigmoid()
         )
 
     def forward(self, X):
