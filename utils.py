@@ -1,9 +1,10 @@
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
-import json
 from cv2 import imread, resize, IMREAD_GRAYSCALE
+import json
 import torch
+import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 from torchvision.transforms import ToTensor
 from sklearn.metrics import balanced_accuracy_score, confusion_matrix, recall_score, precision_score, ConfusionMatrixDisplay
@@ -21,6 +22,8 @@ class ImgDataset(Dataset):
     def __getitem__(self, idx):
         img_path, label = self.df.iloc[idx]
         img = imread(img_path, IMREAD_GRAYSCALE)
+        if img is None:
+            print(f"Didn't read image at {img_path}")
         img = resize(img, self.img_size)
         if self.transform:
             img = self.transform(img)
@@ -30,9 +33,9 @@ class ImgDataset(Dataset):
 
 def get_data():
     paths = {
-        'training': './data/chest_xray/train/',
-        'validation': './data/chest_xray/val/',
-        'test': './data/chest_xray/test/'
+        'training': './data/chest_xray/chest_xray/train/',
+        'validation': './data/chest_xray/chest_xray/val/',
+        'test': './data/chest_xray/chest_xray/test/'
     }
     categories = {0: 'normal', 1: 'pneumonia'}
     dataset = pd.DataFrame()
@@ -46,6 +49,7 @@ def get_data():
             tmp['filename'] = files
             tmp['class'] = cat_number
             dataset = pd.concat([dataset, tmp])
+    dataset = dataset[~dataset['filename'].str.contains('DS_Store')] # Exclude DS_Store
     dataset = dataset.sample(frac=1).reset_index(drop=True) # Shuffle Dataset
     return dataset
 
@@ -54,7 +58,7 @@ def get_dataloader(data_df, batch_size, img_size=(96, 96), transform=ToTensor(),
     dataloader = DataLoader(dataset, batch_size, shuffle=shuffle)
     return dataloader
 
-def train_loop(dataloader, model, loss_fn, optimizer, device, history):
+def train_loop(dataloader, model, optimizer, device, history, class_weights=None):
     model.train()
     size = len(dataloader.dataset)
     num_batches = len(dataloader)
@@ -67,10 +71,11 @@ def train_loop(dataloader, model, loss_fn, optimizer, device, history):
         output = model(X).flatten()
 
         # Compute loss
-        loss = loss_fn(output, y)
+        loss = bce_loss_logits(output, y, weights=class_weights)
         avg_loss += loss.item()
 
         # Add to total predictions and ground truths
+        output = torch.sigmoid(output)
         y_pred = torch.cat((y_pred, torch.round(output).to(device))).to(device)
         y_true = torch.cat((y_true, y)).to(device)
 
@@ -88,7 +93,7 @@ def train_loop(dataloader, model, loss_fn, optimizer, device, history):
     calc_metrics(y_pred.int().cpu().detach().numpy(), y_true.int().cpu().detach().numpy(), history)
     
 
-def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
+def evaluate(dataloader, model, device, history, mode='val', class_weights=None):
     model.eval()
     num_batches = len(dataloader)
     y_true, y_pred = torch.Tensor().to(device), torch.Tensor().to(device)
@@ -101,10 +106,11 @@ def evaluate(dataloader, model, loss_fn, device, history, mode='val'):
             output = model(X).flatten()
 
             # Compute Loss
-            loss = loss_fn(output, y)
+            loss = bce_loss_logits(output, y, weights=class_weights)
             test_loss += loss
 
             # Build up y_true and y_pred
+            output = torch.sigmoid(output)
             y_pred = torch.cat((y_pred, torch.round(output))) 
             y_true = torch.cat((y_true, y))
 
@@ -135,7 +141,26 @@ def calc_metrics(y_pred, y_true, history=None, mode='train'):
         history['val_specificities'].append(specificity)
     return accuracy, precision, recall, specificity
 
-def save_model(model, path: str):
+def bce_loss_logits(logits, target, weights=None):
+    logits = logits.double()
+    target = target.double()
+    a = target * F.logsigmoid(logits)
+    b = (1 - target) * torch.log(1 - torch.sigmoid(logits))
+    if weights is not None:
+        loss = -1.0 * (weights[1] * a + weights[0] * b)
+    else:
+        loss = -1.0 * (a + b)
+    loss = loss.mean()
+    return loss
+
+def save_model(model, path, history, used_weights=False):
+    if not os.path.exists('history'):
+        os.mkdir('history')
+    if not os.path.exists('trained_models'):
+        os.mkdir('trained_models')
+    dict_path = './history/weights.json' if used_weights else './history/normal.json'
+    with open(dict_path, 'w') as fp:
+        json.dump(history, fp)
     return torch.save(model, path)
 
 def plot_confusion_matrix(y_pred, y_true):
