@@ -22,8 +22,6 @@ class ImgDataset(Dataset):
     def __getitem__(self, idx):
         img_path, label = self.df.iloc[idx]
         img = imread(img_path, IMREAD_GRAYSCALE)
-        if img is None:
-            print(f"Didn't read image at {img_path}")
         img = resize(img, self.img_size)
         if self.transform:
             img = self.transform(img)
@@ -49,7 +47,7 @@ def get_data():
             tmp['filename'] = files
             tmp['class'] = cat_number
             dataset = pd.concat([dataset, tmp])
-    dataset = dataset[~dataset['filename'].str.contains('DS_Store')] # Exclude DS_Store
+    dataset = dataset[dataset['filename'].str.contains('jpeg')] # Only include JPEG images
     dataset = dataset.sample(frac=1).reset_index(drop=True) # Shuffle Dataset
     return dataset
 
