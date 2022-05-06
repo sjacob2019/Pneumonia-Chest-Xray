@@ -1,0 +1,19 @@
+name: pneumonia-xray
+
+channels:
+  - pytorch
+  - defaults
+
+dependencies:
+  - python=3.9
+  - pip
+  - pandas
+  - scikit-learn
+  - numpy
+  - matplotlib
+  - jupyter
+  - pytorch
+  - torchvision
+  - captum
+  - pip:
+    - opencv-python
